@@ -32,9 +32,9 @@
     bottom: calc(30px + env(safe-area-inset-bottom, 0px));
     left: 50%;
     transform: translateX(-50%);
-    padding: 12px 28px;
+    padding: 13px 28px;
     background: rgba(255, 255, 255, 0.18);
-    border: 1px solid rgba(255, 255, 255, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.35);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     color: #ffffff;
@@ -52,10 +52,9 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<button id="sound-btn">Включить музыку 🎵</button>
+<button id="sound-btn" type="button">Включить музыку 🎵</button>
 
-<!-- Красивая фортепианная композиция без авторских прав (Royalty Free) -->
-<audio id="bg-audio" loop preload="auto" src="https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=romantic-piano-112199.mp3"></audio>
+<audio id="bg-audio" loop preload="auto" playsinline crossorigin="anonymous" src="https://upload.wikimedia.org/wikipedia/commons/e/eb/Clair_de_lune_%28Claude_Debussy%29_Suite_bergamasque.ogg"></audio>
 
 <script>
 (function () {
@@ -73,23 +72,39 @@
 
   const PARTICLE_COUNT = 18000;
 
-  // ---------- Надёжный запуск звука для iOS и Android ----------
-  function playAudio() {
-    if (!bgAudio) return;
+  // ---------- Запуск аудио без блокировок на Android / iOS ----------
+  let audioTriggered = false;
+
+  function handleSoundAction(e) {
+    if (audioTriggered) return;
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    audioTriggered = true;
+
     bgAudio.volume = 0.6;
-    const playPromise = bgAudio.play();
-    if (playPromise !== undefined) {
-      playPromise.then(() => {
+    const promise = bgAudio.play();
+    if (promise !== undefined) {
+      promise.then(() => {
         soundBtn.style.opacity = '0';
-        setTimeout(() => soundBtn.remove(), 600);
+        soundBtn.style.pointerEvents = 'none';
+        setTimeout(() => {
+          if (soundBtn.parentNode) soundBtn.remove();
+        }, 500);
       }).catch(err => {
-        console.warn("Не удалось воспроизвести сразу, требуется клик:", err);
+        console.warn("Ошибка автозапуска:", err);
+        audioTriggered = false;
       });
     }
   }
 
-  soundBtn.addEventListener('click', playAudio);
-  soundBtn.addEventListener('touchend', playAudio);
+  if (window.PointerEvent) {
+    soundBtn.addEventListener('pointerdown', handleSoundAction, { passive: false });
+  } else {
+    soundBtn.addEventListener('touchstart', handleSoundAction, { passive: false });
+    soundBtn.addEventListener('click', handleSoundAction);
+  }
 
   // ---------- Размеры экрана ----------
   function resize() {
@@ -114,7 +129,7 @@
 
   function rand(a, b) { return a + Math.random() * (b - a); }
 
-  // ---------- Формула сердца ----------
+  // ---------- Математика сердца ----------
   function heartPoint(t) {
     const x = 16 * Math.pow(Math.sin(t), 3);
     const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
@@ -252,7 +267,7 @@
     }
   }
 
-  // ---------- Фазы ----------
+  // ---------- Фазы показа ----------
   let globalPhase = 'rise';
   let phaseTime = 0;
   const DURATIONS = {
@@ -320,7 +335,7 @@
     }
   }
 
-  // ---------- Указатель ----------
+  // ---------- Указатель (касание экрана) ----------
   const pointer = { x: -9999, y: -9999, active: false };
   function setPointer(x, y) { pointer.x = x; pointer.y = y; pointer.active = true; }
   window.addEventListener('mousemove', e => setPointer(e.clientX, e.clientY));
