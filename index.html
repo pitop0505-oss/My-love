@@ -13,6 +13,7 @@
     background: #000000;
     overflow: hidden;
     touch-action: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   canvas {
     display: block;
@@ -22,29 +23,116 @@
     width: 100%;
     height: 100%;
   }
+  #sound-btn {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 20px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: #fff;
+    font-size: 13px;
+    letter-spacing: 1px;
+    border-radius: 24px;
+    cursor: pointer;
+    user-select: none;
+    z-index: 50;
+    transition: opacity 0.5s ease;
+  }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="sound-btn">Включить музыку 🎵</div>
 
 <script>
 (function () {
   'use strict';
 
- 
-  
-  const PHOTO_SRC ='photo.jpg'
-
+  const PHOTO_SRC = 'photo.jpg';
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d', { alpha: false });
+  const soundBtn = document.getElementById('sound-btn');
 
   let W = 0, H = 0, DPR = 1;
   let centerX = 0, centerY = 0, heartScale = 1, platformX = 0, platformY = 0;
 
-  // 18 000 частиц для фотографической четкости
   const PARTICLE_COUNT = 18000;
 
+  // ---------- Web Audio API: Синтезатор без авторских прав ----------
+  let audioCtx = null;
+  let soundStarted = false;
+
+  function initMusic() {
+    if (soundStarted) return;
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioContext();
+      
+      const masterGain = audioCtx.createGain();
+      masterGain.gain.setValueAtTime(0.001, audioCtx.currentTime);
+      masterGain.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime + 3);
+      masterGain.connect(audioCtx.destination);
+
+      // Пэд с аккордом (F# - A# - C# - D# космический романтический аккорд)
+      const freqs = [185.00, 233.08, 277.18, 311.13, 370.00];
+      freqs.forEach(freq => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+
+        // Легкая расстройка для глубины звука
+        const lfo = audioCtx.createOscillator();
+        const lfoGain = audioCtx.createGain();
+        lfo.frequency.value = 0.2 + Math.random() * 0.3;
+        lfoGain.gain.value = 0.8;
+        lfo.connect(osc.frequency);
+        lfo.start();
+
+        gain.gain.value = 0.08;
+        osc.connect(gain);
+        gain.connect(masterGain);
+        osc.start();
+      });
+
+      // Переливающиеся колокольчики
+      const bellFreqs = [554.37, 622.25, 739.99, 830.61, 932.33];
+      setInterval(() => {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        const f = bellFreqs[Math.floor(Math.random() * bellFreqs.length)];
+        osc.frequency.setValueAtTime(f, now);
+
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.exponentialRampToValueAtTime(0.04, now + 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 3.0);
+
+        osc.connect(gain);
+        gain.connect(masterGain);
+        osc.start(now);
+        osc.stop(now + 3.1);
+      }, 1600);
+
+      soundStarted = true;
+      soundBtn.style.opacity = '0';
+      setTimeout(() => soundBtn.remove(), 600);
+    } catch (e) {
+      console.log("Audio not supported or blocked", e);
+    }
+  }
+
+  soundBtn.addEventListener('click', initMusic);
+  window.addEventListener('touchstart', initMusic, { once: true });
+
+  // ---------- Размеры и адаптивность ----------
   function resize() {
     DPR = Math.min(window.devicePixelRatio || 1, 2);
     W = window.innerWidth;
@@ -59,17 +147,17 @@
 
   function computeLayout() {
     centerX = W / 2;
-    centerY = H * 0.44;
-    const targetSize = Math.min(W * 0.65, H * 0.52);
+    centerY = H * 0.48; // Точно по центру экрана
+    const targetSize = Math.min(W * 0.75, H * 0.45);
     heartScale = targetSize / 32;
     platformX = W / 2;
-    platformY = H * 0.90;
+    platformY = H * 0.92;
     if (photoReady) processImage();
   }
 
   function rand(a, b) { return a + Math.random() * (b - a); }
 
-
+  // ---------- Сердце ----------
   function heartPoint(t) {
     const x = 16 * Math.pow(Math.sin(t), 3);
     const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
@@ -119,24 +207,32 @@
     }
   }
 
-
+  // ---------- Обработка фото (исправленный масштаб под любой экран) ----------
   let photoTargets = [];
   let photoReady = false;
   const img = new Image();
-  img.crossOrigin = "anonymous";
-  img.src = PHOTO_SRC;
 
   img.onload = function() {
     photoReady = true;
     processImage();
   };
+  img.src = PHOTO_SRC;
 
   function processImage() {
     const off = document.createElement('canvas');
     const aspect = img.width / img.height;
-   
-    const boxH = Math.min(H * 0.62, 540);
-    const boxW = boxH * aspect;
+
+    // Вписываем так, чтобы фотография ВСЕГДА влезала и по ширине, и по высоте
+    const maxW = W * 0.88;
+    const maxH = H * 0.65;
+    
+    let boxW = maxW;
+    let boxH = boxW / aspect;
+
+    if (boxH > maxH) {
+      boxH = maxH;
+      boxW = boxH * aspect;
+    }
 
     off.width = Math.floor(boxW);
     off.height = Math.floor(boxH);
@@ -169,7 +265,7 @@
     }
   }
 
-  
+  // ---------- Частицы ----------
   function Particle(i) {
     this.x = platformX + rand(-40, 40);
     this.y = platformY + rand(-15, 15);
@@ -177,7 +273,7 @@
     this.vy = rand(-3.2, -1.3);
     this.burstVX = 0;
     this.burstVY = 0;
-    this.baseSize = rand(1.1, 1.4); 
+    this.baseSize = rand(1.1, 1.4);
     this.opacity = 0;
     this.color = [160, 210, 255];
     this.phase = rand(0, Math.PI * 2);
@@ -193,7 +289,7 @@
     }
   }
 
-  
+  // ---------- Таймлайн ----------
   let globalPhase = 'rise';
   let phaseTime = 0;
   const DURATIONS = {
@@ -226,9 +322,7 @@
           globalPhase = 'heart_alive';
           break;
         case 'heart_alive':
-          if (photoReady) {
-            globalPhase = 'heart_flash';
-          }
+          if (photoReady) globalPhase = 'heart_flash';
           break;
         case 'heart_flash':
           globalPhase = 'morph_to_photo';
@@ -263,7 +357,7 @@
     }
   }
 
-
+  // ---------- Указатель (касание экрана) ----------
   const pointer = { x: -9999, y: -9999, active: false };
   function setPointer(x, y) { pointer.x = x; pointer.y = y; pointer.active = true; }
   window.addEventListener('mousemove', e => setPointer(e.clientX, e.clientY));
@@ -292,7 +386,6 @@
 
   function drawParticles(dt) {
     const isPhotoPhase = (globalPhase === 'photo_alive' || globalPhase === 'morph_to_photo');
-   
     ctx.globalCompositeOperation = isPhotoPhase ? 'source-over' : 'lighter';
 
     const time = performance.now() / 1000;
@@ -328,8 +421,6 @@
         p.y += p.burstVY;
       } else {
         const ease = (globalPhase === 'morph_to_photo' || globalPhase === 'morph_to_heart') ? 0.055 : 0.09;
-        
-     
         const wobbleAmount = isPhotoPhase ? 0.25 : 1.0;
         const wobbleX = Math.sin(time * p.phaseSpeed + p.phase) * wobbleAmount;
         const wobbleY = Math.cos(time * p.phaseSpeed * 0.8 + p.phase) * wobbleAmount;
@@ -353,13 +444,11 @@
       const alpha = Math.max(0, Math.min(1, p.opacity));
       const rgb = `${Math.floor(p.color[0])},${Math.floor(p.color[1])},${Math.floor(p.color[2])}`;
 
-     
       ctx.beginPath();
       ctx.fillStyle = `rgba(${rgb}, ${alpha})`;
       ctx.arc(p.x, p.y, p.baseSize, 0, Math.PI * 2);
       ctx.fill();
 
-   
       if (!isPhotoPhase) {
         ctx.beginPath();
         ctx.fillStyle = `rgba(${rgb}, ${alpha * 0.18})`;
