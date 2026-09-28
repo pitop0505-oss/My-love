@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Magic Heart & Portrait</title>
 <style>
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
   html, body {
     margin: 0;
     padding: 0;
@@ -12,12 +16,12 @@
     height: 100%;
     background: #000000;
     overflow: hidden;
-    touch-action: none;
+    position: fixed;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   canvas {
     display: block;
-    position: fixed;
+    position: absolute;
     top: 0;
     left: 0;
     width: 100%;
@@ -25,28 +29,30 @@
   }
   #sound-btn {
     position: fixed;
-    bottom: 24px;
+    bottom: calc(28px + env(safe-area-inset-bottom, 0px));
     left: 50%;
     transform: translateX(-50%);
-    padding: 10px 20px;
-    background: rgba(255, 255, 255, 0.12);
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    color: #fff;
-    font-size: 13px;
-    letter-spacing: 1px;
-    border-radius: 24px;
+    padding: 12px 24px;
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    border-radius: 30px;
     cursor: pointer;
     user-select: none;
-    z-index: 50;
+    z-index: 999;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
     transition: opacity 0.5s ease;
   }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="sound-btn">Включить музыку 🎵</div>
+<button id="sound-btn">Включить музыку 🎵</button>
 
 <script>
 (function () {
@@ -63,101 +69,109 @@
 
   const PARTICLE_COUNT = 18000;
 
-  // ---------- Web Audio API: Синтезатор без авторских прав ----------
+  // ---------- Аудиодвижок: адаптивный под iOS / Safari / Telegram ----------
   let audioCtx = null;
-  let soundStarted = false;
+  let isPlaying = false;
 
-  function initMusic() {
-    if (soundStarted) return;
+  function startAudio(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (isPlaying) return;
+
     try {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
-      audioCtx = new AudioContext();
-      
+      if (!audioCtx) {
+        audioCtx = new AudioContext();
+      }
+
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+
       const masterGain = audioCtx.createGain();
       masterGain.gain.setValueAtTime(0.001, audioCtx.currentTime);
-      masterGain.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime + 3);
+      masterGain.gain.exponentialRampToValueAtTime(0.22, audioCtx.currentTime + 2.5);
       masterGain.connect(audioCtx.destination);
 
-      // Пэд с аккордом (F# - A# - C# - D# космический романтический аккорд)
-      const freqs = [185.00, 233.08, 277.18, 311.13, 370.00];
+      // Романтичный гармонический пэд (аккорд F# - A# - C# - D# - F)
+      const freqs = [185.00, 233.08, 277.18, 311.13, 349.23, 370.00];
       freqs.forEach(freq => {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'sine';
         osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
 
-        // Легкая расстройка для глубины звука
         const lfo = audioCtx.createOscillator();
         const lfoGain = audioCtx.createGain();
-        lfo.frequency.value = 0.2 + Math.random() * 0.3;
-        lfoGain.gain.value = 0.8;
+        lfo.frequency.value = 0.15 + Math.random() * 0.25;
+        lfoGain.gain.value = 0.9;
         lfo.connect(osc.frequency);
         lfo.start();
 
-        gain.gain.value = 0.08;
+        gain.gain.value = 0.07;
         osc.connect(gain);
         gain.connect(masterGain);
         osc.start();
       });
 
-      // Переливающиеся колокольчики
-      const bellFreqs = [554.37, 622.25, 739.99, 830.61, 932.33];
+      // Переливающиеся хрустальные колокольчики
+      const bells = [554.37, 622.25, 739.99, 830.61, 932.33, 1108.73];
       setInterval(() => {
-        if (!audioCtx) return;
+        if (!audioCtx || audioCtx.state !== 'running') return;
         const now = audioCtx.currentTime;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'triangle';
-        const f = bellFreqs[Math.floor(Math.random() * bellFreqs.length)];
-        osc.frequency.setValueAtTime(f, now);
+        const note = bells[Math.floor(Math.random() * bells.length)];
+        osc.frequency.setValueAtTime(note, now);
 
         gain.gain.setValueAtTime(0.001, now);
-        gain.gain.exponentialRampToValueAtTime(0.04, now + 0.1);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 3.0);
+        gain.gain.exponentialRampToValueAtTime(0.045, now + 0.12);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.8);
 
         osc.connect(gain);
         gain.connect(masterGain);
         osc.start(now);
-        osc.stop(now + 3.1);
-      }, 1600);
+        osc.stop(now + 2.9);
+      }, 1400);
 
-      soundStarted = true;
+      isPlaying = true;
       soundBtn.style.opacity = '0';
       setTimeout(() => soundBtn.remove(), 600);
-    } catch (e) {
-      console.log("Audio not supported or blocked", e);
+    } catch (err) {
+      console.error(err);
     }
   }
 
-  soundBtn.addEventListener('click', initMusic);
-  window.addEventListener('touchstart', initMusic, { once: true });
+  soundBtn.addEventListener('click', startAudio);
+  soundBtn.addEventListener('touchend', startAudio);
 
-  // ---------- Размеры и адаптивность ----------
+  // ---------- Размеры экрана ----------
   function resize() {
     DPR = Math.min(window.devicePixelRatio || 1, 2);
-    W = window.innerWidth;
-    H = window.innerHeight;
+    W = window.innerWidth || document.documentElement.clientWidth;
+    H = window.innerHeight || document.documentElement.clientHeight;
     canvas.width = Math.floor(W * DPR);
     canvas.height = Math.floor(H * DPR);
     canvas.style.width = W + 'px';
     canvas.style.height = H + 'px';
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    computeLayout();
-  }
 
-  function computeLayout() {
     centerX = W / 2;
-    centerY = H * 0.48; // Точно по центру экрана
+    centerY = H * 0.48;
     const targetSize = Math.min(W * 0.75, H * 0.45);
     heartScale = targetSize / 32;
     platformX = W / 2;
-    platformY = H * 0.92;
+    platformY = H * 0.90;
+
     if (photoReady) processImage();
   }
 
   function rand(a, b) { return a + Math.random() * (b - a); }
 
-  // ---------- Сердце ----------
+  // ---------- Формула сердца ----------
   function heartPoint(t) {
     const x = 16 * Math.pow(Math.sin(t), 3);
     const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
@@ -207,30 +221,32 @@
     }
   }
 
-  // ---------- Обработка фото (исправленный масштаб под любой экран) ----------
+  // ---------- Обработка фото: идеальное масштабирование без обрезки ----------
   let photoTargets = [];
   let photoReady = false;
   const img = new Image();
 
   img.onload = function() {
     photoReady = true;
-    processImage();
+    resize();
   };
   img.src = PHOTO_SRC;
 
   function processImage() {
+    if (!img.width || !img.height) return;
+
     const off = document.createElement('canvas');
     const aspect = img.width / img.height;
 
-    // Вписываем так, чтобы фотография ВСЕГДА влезала и по ширине, и по высоте
-    const maxW = W * 0.88;
-    const maxH = H * 0.65;
-    
-    let boxW = maxW;
+    // Вписываем фото целиком с комфортными отступами
+    const maxAllowedW = W * 0.85;
+    const maxAllowedH = H * 0.62;
+
+    let boxW = maxAllowedW;
     let boxH = boxW / aspect;
 
-    if (boxH > maxH) {
-      boxH = maxH;
+    if (boxH > maxAllowedH) {
+      boxH = maxAllowedH;
       boxW = boxH * aspect;
     }
 
@@ -248,8 +264,8 @@
       for (let x = 0; x < off.width; x += step) {
         const idx = (y * off.width + x) * 4;
         photoTargets.push({
-          screenX: centerX - (boxW / 2) + x,
-          screenY: centerY - (boxH / 2) + y,
+          screenX: (centerX - boxW / 2) + x,
+          screenY: (centerY - boxH / 2) + y,
           color: [imgData[idx], imgData[idx + 1], imgData[idx + 2]]
         });
       }
@@ -357,14 +373,18 @@
     }
   }
 
-  // ---------- Указатель (касание экрана) ----------
+  // ---------- Интерактивность (касания) ----------
   const pointer = { x: -9999, y: -9999, active: false };
   function setPointer(x, y) { pointer.x = x; pointer.y = y; pointer.active = true; }
   window.addEventListener('mousemove', e => setPointer(e.clientX, e.clientY));
   window.addEventListener('mousedown', e => setPointer(e.clientX, e.clientY));
   window.addEventListener('mouseleave', () => { pointer.active = false; });
-  window.addEventListener('touchstart', e => { if (e.touches[0]) setPointer(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
-  window.addEventListener('touchmove', e => { if (e.touches[0]) setPointer(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+  window.addEventListener('touchstart', e => { 
+    if (e.touches[0]) setPointer(e.touches[0].clientX, e.touches[0].clientY); 
+  }, { passive: true });
+  window.addEventListener('touchmove', e => { 
+    if (e.touches[0]) setPointer(e.touches[0].clientX, e.touches[0].clientY); 
+  }, { passive: true });
   window.addEventListener('touchend', () => { pointer.active = false; });
 
   function drawPlatform() {
