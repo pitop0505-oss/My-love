@@ -28,40 +28,81 @@
     height: 100%;
     z-index: 1;
   }
-  #sound-btn {
+
+  /* Мини-виджет плеера с ползунком */
+  #player-widget {
     position: fixed;
-    bottom: calc(32px + env(safe-area-inset-bottom, 0px));
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 14px 30px;
-    background: rgba(255, 255, 255, 0.22);
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    color: #ffffff;
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    border-radius: 35px;
-    cursor: pointer;
-    user-select: none;
-    -webkit-user-select: none;
-    touch-action: manipulation;
-    pointer-events: auto;
+    top: calc(20px + env(safe-area-inset-top, 0px));
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-radius: 30px;
     z-index: 99999;
-    box-shadow: 0 4px 25px rgba(0, 0, 0, 0.8), 0 0 15px rgba(255, 255, 255, 0.2);
-    transition: opacity 0.4s ease, transform 0.2s ease;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    user-select: none;
+    touch-action: manipulation;
   }
-  #sound-btn:active {
-    transform: translateX(-50%) scale(0.95);
+
+  #play-toggle {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    line-height: 1;
+    outline: none;
+    transition: transform 0.15s ease;
+  }
+  #play-toggle:active {
+    transform: scale(0.85);
+  }
+
+  /* Аккуратный ползунок */
+  #vol-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 70px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  #vol-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #ffffff;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(255,255,255,0.8);
+  }
+  #vol-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #ffffff;
+    cursor: pointer;
+    border: none;
   }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<button id="sound-btn" type="button">Включить музыку 🎵</button>
 
-<audio id="bg-audio" loop preload="auto" playsinline crossorigin="anonymous" src="https://upload.wikimedia.org/wikipedia/commons/e/eb/Clair_de_lune_%28Claude_Debussy%29_Suite_bergamasque.ogg"></audio>
+<!-- Виджет управления звуком -->
+<div id="player-widget">
+  <button id="play-toggle" title="Включить / Выключить звук">🔇</button>
+  <input type="range" id="vol-slider" min="0" max="1" step="0.01" value="0.7">
+</div>
 
 <script>
 (function () {
@@ -71,42 +112,145 @@
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d', { alpha: false });
-  const soundBtn = document.getElementById('sound-btn');
-  const bgAudio = document.getElementById('bg-audio');
+  const playToggle = document.getElementById('play-toggle');
+  const volSlider = document.getElementById('vol-slider');
+  const playerWidget = document.getElementById('player-widget');
 
   let W = 0, H = 0, DPR = 1;
   let centerX = 0, centerY = 0, heartScale = 1, platformX = 0, platformY = 0;
-
   const PARTICLE_COUNT = 18000;
 
-  // ---------- Безотказный запуск музыки ----------
-  let audioPlaying = false;
+  // ---------- Аудиосистема (синтез романтичного фортепиано через Web Audio) ----------
+  let audioCtx = null;
+  let isPlaying = false;
+  let masterGain = null;
+  let melodyTimer = null;
 
-  function triggerPlay(e) {
-    if (e) {
-      e.stopPropagation();
+  function ensureAudioContext() {
+    if (!audioCtx) {
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioCtxClass();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.setValueAtTime(parseFloat(volSlider.value), audioCtx.currentTime);
+      masterGain.connect(audioCtx.destination);
     }
-    if (audioPlaying) return;
-
-    bgAudio.volume = 0.65;
-    const p = bgAudio.play();
-    if (p !== undefined) {
-      p.then(() => {
-        audioPlaying = true;
-        soundBtn.style.opacity = '0';
-        soundBtn.style.pointerEvents = 'none';
-        setTimeout(() => {
-          if (soundBtn.parentNode) soundBtn.remove();
-        }, 400);
-      }).catch(err => {
-        console.warn("Play error:", err);
-      });
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
     }
   }
 
-  // Подключаем прямые обработчики именно на элемент кнопки
-  soundBtn.onclick = triggerPlay;
-  soundBtn.ontouchend = triggerPlay;
+  function playPianoKey(freq, time, duration, vol) {
+    if (!audioCtx || !isPlaying) return;
+
+    const osc1 = audioCtx.createOscillator();
+    const osc2 = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(1200, time);
+    filter.frequency.exponentialRampToValueAtTime(250, time + duration);
+
+    osc1.type = 'triangle';
+    osc2.type = 'sine';
+    osc1.frequency.setValueAtTime(freq, time);
+    osc2.frequency.setValueAtTime(freq * 2, time);
+
+    gain.gain.setValueAtTime(0.0001, time);
+    gain.gain.exponentialRampToValueAtTime(vol, time + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gain);
+    gain.connect(masterGain);
+
+    osc1.start(time);
+    osc2.start(time);
+    osc1.stop(time + duration);
+    osc2.stop(time + duration);
+  }
+
+  const chords = [
+    { bass: 130.81, notes: [261.63, 329.63, 392.00, 493.88, 587.33] }, // C
+    { bass: 110.00, notes: [220.00, 261.63, 329.63, 440.00, 523.25] }, // Am
+    { bass: 87.31,  notes: [174.61, 220.00, 261.63, 349.23, 440.00] }, // F
+    { bass: 98.00,  notes: [196.00, 246.94, 293.66, 392.00, 493.88] }  // G
+  ];
+
+  let currentChordIdx = 0;
+  let beatCount = 0;
+
+  function tickMelody() {
+    if (!isPlaying || !audioCtx) return;
+    const now = audioCtx.currentTime;
+    const currentChord = chords[currentChordIdx];
+
+    if (beatCount % 4 === 0) {
+      playPianoKey(currentChord.bass, now, 3.8, 0.28);
+    }
+
+    const note = currentChord.notes[Math.floor(Math.random() * currentChord.notes.length)];
+    playPianoKey(note, now, 2.0, 0.18);
+
+    beatCount++;
+    if (beatCount % 8 === 0) {
+      currentChordIdx = (currentChordIdx + 1) % chords.length;
+    }
+  }
+
+  function startAudioEngine() {
+    ensureAudioContext();
+    if (isPlaying) return;
+    isPlaying = true;
+    playToggle.textContent = '🎵';
+    melodyTimer = setInterval(tickMelody, 550);
+  }
+
+  function stopAudioEngine() {
+    isPlaying = false;
+    playToggle.textContent = '🔇';
+    if (melodyTimer) clearInterval(melodyTimer);
+  }
+
+  function toggleAudio(e) {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    if (isPlaying) {
+      stopAudioEngine();
+    } else {
+      startAudioEngine();
+    }
+  }
+
+  playToggle.addEventListener('click', toggleAudio);
+  playToggle.addEventListener('touchend', toggleAudio);
+
+  volSlider.addEventListener('input', (e) => {
+    e.stopPropagation();
+    const val = parseFloat(e.target.value);
+    if (masterGain && audioCtx) {
+      masterGain.gain.setValueAtTime(val, audioCtx.currentTime);
+    }
+    if (val === 0) {
+      playToggle.textContent = '🔇';
+    } else if (isPlaying) {
+      playToggle.textContent = '🎵';
+    }
+  });
+
+  // Автозапуск при любом первом клике / касании экрана
+  function onFirstUserGesture() {
+    startAudioEngine();
+    window.removeEventListener('pointerdown', onFirstUserGesture);
+    window.removeEventListener('click', onFirstUserGesture);
+    window.removeEventListener('touchstart', onFirstUserGesture);
+  }
+  window.addEventListener('pointerdown', onFirstUserGesture);
+  window.addEventListener('click', onFirstUserGesture);
+  window.addEventListener('touchstart', onFirstUserGesture);
 
   // ---------- Размеры экрана ----------
   function resize() {
@@ -131,7 +275,7 @@
 
   function rand(a, b) { return a + Math.random() * (b - a); }
 
-  // ---------- Сердце ----------
+  // ---------- Формула сердца ----------
   function heartPoint(t) {
     const x = 16 * Math.pow(Math.sin(t), 3);
     const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
@@ -181,7 +325,7 @@
     }
   }
 
-  // ---------- Обработка фото ----------
+  // ---------- Обработка фото (полная выгрузка без срезов) ----------
   let photoTargets = [];
   let photoReady = false;
   const img = new Image();
@@ -337,26 +481,26 @@
     }
   }
 
-  // ---------- Указатель (без помех для кнопки) ----------
+  // ---------- Указатель ----------
   const pointer = { x: -9999, y: -9999, active: false };
   function setPointer(x, y) { pointer.x = x; pointer.y = y; pointer.active = true; }
-  
+
   window.addEventListener('mousemove', e => setPointer(e.clientX, e.clientY));
   window.addEventListener('mousedown', e => setPointer(e.clientX, e.clientY));
   window.addEventListener('mouseleave', () => { pointer.active = false; });
-  
+
   window.addEventListener('touchstart', e => { 
-    if (e.target === soundBtn || soundBtn.contains(e.target)) return;
+    if (playerWidget.contains(e.target)) return;
     if (e.touches[0]) setPointer(e.touches[0].clientX, e.touches[0].clientY); 
   }, { passive: true });
-  
+
   window.addEventListener('touchmove', e => { 
-    if (e.target === soundBtn || soundBtn.contains(e.target)) return;
+    if (playerWidget.contains(e.target)) return;
     if (e.touches[0]) setPointer(e.touches[0].clientX, e.touches[0].clientY); 
   }, { passive: true });
-  
+
   window.addEventListener('touchend', e => { 
-    if (e.target === soundBtn || soundBtn.contains(e.target)) return;
+    if (playerWidget.contains(e.target)) return;
     pointer.active = false; 
   });
 
