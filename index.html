@@ -32,20 +32,20 @@
     bottom: calc(30px + env(safe-area-inset-bottom, 0px));
     left: 50%;
     transform: translateX(-50%);
-    padding: 12px 26px;
-    background: rgba(255, 255, 255, 0.15);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    padding: 12px 28px;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     color: #ffffff;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 500;
     letter-spacing: 0.5px;
     border-radius: 30px;
     cursor: pointer;
     user-select: none;
     z-index: 999;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 4px 25px rgba(0, 0, 0, 0.7);
     transition: opacity 0.5s ease;
   }
 </style>
@@ -53,6 +53,9 @@
 <body>
 <canvas id="c"></canvas>
 <button id="sound-btn">Включить музыку 🎵</button>
+
+<!-- Красивая фортепианная композиция без авторских прав (Royalty Free) -->
+<audio id="bg-audio" loop preload="auto" src="https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=romantic-piano-112199.mp3"></audio>
 
 <script>
 (function () {
@@ -63,94 +66,32 @@
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d', { alpha: false });
   const soundBtn = document.getElementById('sound-btn');
+  const bgAudio = document.getElementById('bg-audio');
 
   let W = 0, H = 0, DPR = 1;
   let centerX = 0, centerY = 0, heartScale = 1, platformX = 0, platformY = 0;
 
   const PARTICLE_COUNT = 18000;
 
-  // ---------- Теплая романтичная фортепианная мелодия (Web Audio) ----------
-  let audioCtx = null;
-  let isPlaying = false;
-
-  function playPianoNote(freq, time, duration, volume) {
-    if (!audioCtx) return;
-
-    const osc = audioCtx.createOscillator();
-    const osc2 = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-    const filter = audioCtx.createBiquadFilter();
-
-    // Мягкий бархатный фильтр как у деревянного фортепиано
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(1400, time);
-    filter.frequency.exponentialRampToValueAtTime(300, time + duration);
-
-    osc.type = 'triangle';
-    osc2.type = 'sine';
-    osc.frequency.setValueAtTime(freq, time);
-    osc2.frequency.setValueAtTime(freq * 2, time); // второй обертон
-
-    gainNode.gain.setValueAtTime(0.0001, time);
-    gainNode.gain.exponentialRampToValueAtTime(volume, time + 0.03);
-    gainNode.gain.exponentialRampToValueAtTime(0.0001, time + duration);
-
-    osc.connect(filter);
-    osc2.connect(filter);
-    filter.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-
-    osc.start(time);
-    osc2.start(time);
-    osc.stop(time + duration);
-    osc2.stop(time + duration);
-  }
-
-  function startMelody() {
-    // Ноты нежной мелодии: До - Ми - Соль - Си - Ре
-    const melodyNotes = [261.63, 329.63, 392.00, 493.88, 523.25, 587.33, 659.25];
-    const bassNotes = [130.81, 164.81, 174.61, 196.00];
-    let step = 0;
-
-    setInterval(() => {
-      if (!audioCtx || audioCtx.state !== 'running') return;
-      const now = audioCtx.currentTime;
-
-      // Басовый аккомпанемент раз в 4 такта
-      if (step % 4 === 0) {
-        const bass = bassNotes[Math.floor(Math.random() * bassNotes.length)];
-        playPianoNote(bass, now, 4.0, 0.12);
-      }
-
-      // Переливчатая мелодическая линия
-      const note = melodyNotes[Math.floor(Math.random() * melodyNotes.length)];
-      playPianoNote(note, now, 2.2, 0.08);
-
-      step++;
-    }, 600);
-  }
-
-  function triggerAudio() {
-    if (isPlaying) return;
-    try {
-      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
-      if (!audioCtx) audioCtx = new AudioCtxClass();
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
-      startMelody();
-      isPlaying = true;
-      soundBtn.style.opacity = '0';
-      setTimeout(() => soundBtn.remove(), 600);
-    } catch (e) {
-      console.error(e);
+  // ---------- Надёжный запуск звука для iOS и Android ----------
+  function playAudio() {
+    if (!bgAudio) return;
+    bgAudio.volume = 0.6;
+    const playPromise = bgAudio.play();
+    if (playPromise !== undefined) {
+      playPromise.then(() => {
+        soundBtn.style.opacity = '0';
+        setTimeout(() => soundBtn.remove(), 600);
+      }).catch(err => {
+        console.warn("Не удалось воспроизвести сразу, требуется клик:", err);
+      });
     }
   }
 
-  soundBtn.addEventListener('click', triggerAudio);
-  soundBtn.addEventListener('touchstart', triggerAudio, { passive: false });
+  soundBtn.addEventListener('click', playAudio);
+  soundBtn.addEventListener('touchend', playAudio);
 
-  // ---------- Размеры и экран ----------
+  // ---------- Размеры экрана ----------
   function resize() {
     DPR = Math.min(window.devicePixelRatio || 1, 2);
     W = window.innerWidth || document.documentElement.clientWidth;
@@ -223,7 +164,7 @@
     }
   }
 
-  // ---------- Корректное масштабирование и сборка ВСЕГО фото ----------
+  // ---------- Обработка фото (полная выгрузка без срезов) ----------
   let photoTargets = [];
   let photoReady = false;
   const img = new Image();
@@ -238,8 +179,6 @@
     if (!img.width || !img.height) return;
 
     const aspect = img.width / img.height;
-
-    // Ограничиваем фото по ширине и высоте экрана с гарантированными полями
     const maxBoxW = W * 0.85;
     const maxBoxH = H * 0.64;
 
@@ -251,7 +190,6 @@
       boxW = boxH * aspect;
     }
 
-    // Сканируем фото в промежуточном канвасе
     const sampleW = 200;
     const sampleH = Math.round(sampleW / aspect);
 
@@ -262,7 +200,6 @@
     octx.drawImage(img, 0, 0, sampleW, sampleH);
     const imgData = octx.getImageData(0, 0, sampleW, sampleH).data;
 
-    // Равномерно распределяем ВСЕ частицы по всей сетке сверху донизу
     photoTargets = [];
     const totalPixels = sampleW * sampleH;
     const step = Math.sqrt(totalPixels / PARTICLE_COUNT);
@@ -281,7 +218,6 @@
       }
     }
 
-    // Если частиц чуть меньше, аккуратно дополняем
     while (photoTargets.length < PARTICLE_COUNT) {
       const copy = photoTargets[Math.floor(Math.random() * photoTargets.length)];
       photoTargets.push({
@@ -316,7 +252,7 @@
     }
   }
 
-  // ---------- Фазы показа ----------
+  // ---------- Фазы ----------
   let globalPhase = 'rise';
   let phaseTime = 0;
   const DURATIONS = {
@@ -384,7 +320,7 @@
     }
   }
 
-  // ---------- Указатель (касание) ----------
+  // ---------- Указатель ----------
   const pointer = { x: -9999, y: -9999, active: false };
   function setPointer(x, y) { pointer.x = x; pointer.y = y; pointer.active = true; }
   window.addEventListener('mousemove', e => setPointer(e.clientX, e.clientY));
