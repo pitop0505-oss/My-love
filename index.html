@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Magic Heart & Portrait</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #000000;
+    overflow: hidden;
+    touch-action: none;
+  }
+  canvas {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script>
+(function () {
+  'use strict';
+
+ 
+  
+  const PHOTO_SRC ='photo.jpg'
+
+
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  let W = 0, H = 0, DPR = 1;
+  let centerX = 0, centerY = 0, heartScale = 1, platformX = 0, platformY = 0;
+
+  // 18 000 частиц для фотографической четкости
+  const PARTICLE_COUNT = 18000;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    computeLayout();
+  }
+
+  function computeLayout() {
+    centerX = W / 2;
+    centerY = H * 0.44;
+    const targetSize = Math.min(W * 0.65, H * 0.52);
+    heartScale = targetSize / 32;
+    platformX = W / 2;
+    platformY = H * 0.90;
+    if (photoReady) processImage();
+  }
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+
+
+  function heartPoint(t) {
+    const x = 16 * Math.pow(Math.sin(t), 3);
+    const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+    return { x: x, y: -y };
+  }
+
+  let outlinePoly = [];
+  for (let i = 0; i < 300; i++) {
+    const t = (i / 300) * Math.PI * 2;
+    outlinePoly.push(heartPoint(t));
+  }
+
+  function pointInHeart(x, y) {
+    let inside = false;
+    for (let i = 0, j = outlinePoly.length - 1; i < outlinePoly.length; j = i++) {
+      const xi = outlinePoly[i].x, yi = outlinePoly[i].y;
+      const xj = outlinePoly[j].x, yj = outlinePoly[j].y;
+      const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  let heartTargets = [];
+  function buildHeartTargets() {
+    heartTargets = [];
+    const outlineCount = Math.floor(PARTICLE_COUNT * 0.25);
+    for (let i = 0; i < outlineCount; i++) {
+      const t = (i / outlineCount) * Math.PI * 2;
+      const p = heartPoint(t);
+      heartTargets.push({
+        x: p.x + rand(-0.35, 0.35),
+        y: p.y + rand(-0.35, 0.35),
+        color: [rand(140, 255), rand(170, 240), 255]
+      });
+    }
+
+    while (heartTargets.length < PARTICLE_COUNT) {
+      const x = rand(-18, 18), y = rand(-16, 14);
+      if (pointInHeart(x, y)) {
+        heartTargets.push({
+          x: x,
+          y: y,
+          color: [rand(40, 160), rand(90, 200), 255]
+        });
+      }
+    }
+  }
+
+
+  let photoTargets = [];
+  let photoReady = false;
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.src = PHOTO_SRC;
+
+  img.onload = function() {
+    photoReady = true;
+    processImage();
+  };
+
+  function processImage() {
+    const off = document.createElement('canvas');
+    const aspect = img.width / img.height;
+   
+    const boxH = Math.min(H * 0.62, 540);
+    const boxW = boxH * aspect;
+
+    off.width = Math.floor(boxW);
+    off.height = Math.floor(boxH);
+    const octx = off.getContext('2d');
+    octx.drawImage(img, 0, 0, off.width, off.height);
+    const imgData = octx.getImageData(0, 0, off.width, off.height).data;
+
+    photoTargets = [];
+    const totalPixels = off.width * off.height;
+    const step = Math.max(1, Math.floor(Math.sqrt(totalPixels / PARTICLE_COUNT)));
+
+    for (let y = 0; y < off.height; y += step) {
+      for (let x = 0; x < off.width; x += step) {
+        const idx = (y * off.width + x) * 4;
+        photoTargets.push({
+          screenX: centerX - (boxW / 2) + x,
+          screenY: centerY - (boxH / 2) + y,
+          color: [imgData[idx], imgData[idx + 1], imgData[idx + 2]]
+        });
+      }
+    }
+
+    while (photoTargets.length < PARTICLE_COUNT && photoTargets.length > 0) {
+      const copy = photoTargets[Math.floor(Math.random() * photoTargets.length)];
+      photoTargets.push({
+        screenX: copy.screenX + rand(-0.7, 0.7),
+        screenY: copy.screenY + rand(-0.7, 0.7),
+        color: copy.color
+      });
+    }
+  }
+
+  
+  function Particle(i) {
+    this.x = platformX + rand(-40, 40);
+    this.y = platformY + rand(-15, 15);
+    this.vx = rand(-0.4, 0.4);
+    this.vy = rand(-3.2, -1.3);
+    this.burstVX = 0;
+    this.burstVY = 0;
+    this.baseSize = rand(1.1, 1.4); 
+    this.opacity = 0;
+    this.color = [160, 210, 255];
+    this.phase = rand(0, Math.PI * 2);
+    this.phaseSpeed = rand(0.8, 2.0);
+    this.targetMode = 'heart';
+  }
+
+  let particles = [];
+  function initParticles() {
+    particles = [];
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      particles.push(new Particle(i));
+    }
+  }
+
+  
+  let globalPhase = 'rise';
+  let phaseTime = 0;
+  const DURATIONS = {
+    rise: 1.8,
+    form_heart: 3.0,
+    heart_alive: 5.0,
+    heart_flash: 0.5,
+    morph_to_photo: 3.2,
+    photo_alive: 7.5,
+    photo_flash: 0.5,
+    morph_to_heart: 3.2
+  };
+
+  let pulseTimer = 0;
+  let pulseAmount = 0;
+  let flashGlow = 0;
+  let camShakeX = 0, camShakeY = 0;
+
+  function updateGlobalPhase(dt) {
+    phaseTime += dt;
+    const dur = DURATIONS[globalPhase] || 3;
+
+    if (phaseTime >= dur) {
+      phaseTime = 0;
+      switch (globalPhase) {
+        case 'rise':
+          globalPhase = 'form_heart';
+          break;
+        case 'form_heart':
+          globalPhase = 'heart_alive';
+          break;
+        case 'heart_alive':
+          if (photoReady) {
+            globalPhase = 'heart_flash';
+          }
+          break;
+        case 'heart_flash':
+          globalPhase = 'morph_to_photo';
+          for (let p of particles) {
+            p.targetMode = 'photo';
+            const ang = rand(0, Math.PI * 2);
+            const speed = rand(1.5, 4.2);
+            p.burstVX = Math.cos(ang) * speed;
+            p.burstVY = Math.sin(ang) * speed;
+          }
+          break;
+        case 'morph_to_photo':
+          globalPhase = 'photo_alive';
+          break;
+        case 'photo_alive':
+          globalPhase = 'photo_flash';
+          break;
+        case 'photo_flash':
+          globalPhase = 'morph_to_heart';
+          for (let p of particles) {
+            p.targetMode = 'heart';
+            const ang = rand(0, Math.PI * 2);
+            const speed = rand(1.5, 4.2);
+            p.burstVX = Math.cos(ang) * speed;
+            p.burstVY = Math.sin(ang) * speed;
+          }
+          break;
+        case 'morph_to_heart':
+          globalPhase = 'heart_alive';
+          break;
+      }
+    }
+  }
+
+
+  const pointer = { x: -9999, y: -9999, active: false };
+  function setPointer(x, y) { pointer.x = x; pointer.y = y; pointer.active = true; }
+  window.addEventListener('mousemove', e => setPointer(e.clientX, e.clientY));
+  window.addEventListener('mousedown', e => setPointer(e.clientX, e.clientY));
+  window.addEventListener('mouseleave', () => { pointer.active = false; });
+  window.addEventListener('touchstart', e => { if (e.touches[0]) setPointer(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+  window.addEventListener('touchmove', e => { if (e.touches[0]) setPointer(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+  window.addEventListener('touchend', () => { pointer.active = false; });
+
+  function drawPlatform() {
+    if (globalPhase !== 'rise' && globalPhase !== 'form_heart') return;
+    const pulse = 0.85 + Math.sin(performance.now() / 420) * 0.15;
+    const w = 95 * pulse, h = 18 * pulse;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    let grad = ctx.createRadialGradient(platformX, platformY, 0, platformX, platformY, w * 2.2);
+    grad.addColorStop(0, 'rgba(80,180,255,0.4)');
+    grad.addColorStop(0.6, 'rgba(40,110,255,0.12)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(platformX, platformY, w * 2.2, h * 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawParticles(dt) {
+    const isPhotoPhase = (globalPhase === 'photo_alive' || globalPhase === 'morph_to_photo');
+   
+    ctx.globalCompositeOperation = isPhotoPhase ? 'source-over' : 'lighter';
+
+    const time = performance.now() / 1000;
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const p = particles[i];
+      let targetX, targetY, targetColor;
+
+      if (p.targetMode === 'heart' || !photoReady) {
+        const ht = heartTargets[i % heartTargets.length];
+        const curScale = heartScale * (1 + pulseAmount);
+        targetX = centerX + ht.x * curScale;
+        targetY = centerY + ht.y * curScale;
+        targetColor = ht.color;
+      } else {
+        const pt = photoTargets[i % photoTargets.length];
+        targetX = pt.screenX;
+        targetY = pt.screenY;
+        targetColor = pt.color;
+      }
+
+      p.color[0] += (targetColor[0] - p.color[0]) * 0.08;
+      p.color[1] += (targetColor[1] - p.color[1]) * 0.08;
+      p.color[2] += (targetColor[2] - p.color[2]) * 0.08;
+
+      if (globalPhase === 'rise') {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy -= 0.012;
+        p.opacity = Math.min(1, p.opacity + dt * 1.5);
+      } else if (globalPhase === 'heart_flash' || globalPhase === 'photo_flash') {
+        p.x += p.burstVX;
+        p.y += p.burstVY;
+      } else {
+        const ease = (globalPhase === 'morph_to_photo' || globalPhase === 'morph_to_heart') ? 0.055 : 0.09;
+        
+     
+        const wobbleAmount = isPhotoPhase ? 0.25 : 1.0;
+        const wobbleX = Math.sin(time * p.phaseSpeed + p.phase) * wobbleAmount;
+        const wobbleY = Math.cos(time * p.phaseSpeed * 0.8 + p.phase) * wobbleAmount;
+
+        p.x += (targetX + wobbleX - p.x) * ease;
+        p.y += (targetY + wobbleY - p.y) * ease;
+        p.opacity = Math.min(1, p.opacity + dt * 1.5);
+
+        if (pointer.active) {
+          const pdx = p.x - pointer.x, pdy = p.y - pointer.y;
+          const dist = Math.sqrt(pdx * pdx + pdy * pdy);
+          const influence = 65;
+          if (dist < influence && dist > 0.001) {
+            const force = (1 - dist / influence) * 7.0;
+            p.x += (pdx / dist) * force;
+            p.y += (pdy / dist) * force;
+          }
+        }
+      }
+
+      const alpha = Math.max(0, Math.min(1, p.opacity));
+      const rgb = `${Math.floor(p.color[0])},${Math.floor(p.color[1])},${Math.floor(p.color[2])}`;
+
+     
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(${rgb}, ${alpha})`;
+      ctx.arc(p.x, p.y, p.baseSize, 0, Math.PI * 2);
+      ctx.fill();
+
+   
+      if (!isPhotoPhase) {
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${rgb}, ${alpha * 0.18})`;
+        ctx.arc(p.x, p.y, p.baseSize * 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawFlash() {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const r = Math.max(W, H) * 0.6 * flashGlow;
+    const grad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, r);
+    grad.addColorStop(0, `rgba(255, 255, 255, ${0.75 * flashGlow})`);
+    grad.addColorStop(0.35, `rgba(180, 220, 255, ${0.45 * flashGlow})`);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  let lastTime = performance.now();
+
+  function frame(now) {
+    let dt = (now - lastTime) / 1000;
+    if (dt > 0.05) dt = 0.05;
+    lastTime = now;
+
+    updateGlobalPhase(dt);
+
+    if (globalPhase === 'heart_alive') {
+      pulseTimer += dt;
+      const cycle = (pulseTimer % 1.6) / 1.6;
+      const beat = Math.max(0, Math.sin(cycle * Math.PI * 2)) * Math.exp(-cycle * 3.8);
+      pulseAmount = beat * 0.08;
+      flashGlow = Math.max(flashGlow * 0.9, beat * 0.25);
+    } else if (globalPhase === 'heart_flash' || globalPhase === 'photo_flash') {
+      flashGlow = Math.min(1, flashGlow + dt * 4.5);
+      camShakeX = rand(-4, 4);
+      camShakeY = rand(-4, 4);
+    } else {
+      flashGlow *= 0.91;
+      pulseAmount *= 0.93;
+      camShakeX *= 0.85;
+      camShakeY *= 0.85;
+    }
+
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    ctx.translate(centerX + camShakeX, centerY + camShakeY);
+    ctx.translate(-centerX, -centerY);
+
+    drawPlatform();
+    drawParticles(dt);
+    if (flashGlow > 0.02) drawFlash();
+
+    ctx.restore();
+
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  buildHeartTargets();
+  initParticles();
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', resize);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
